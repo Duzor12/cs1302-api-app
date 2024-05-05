@@ -68,8 +68,8 @@ public class ApiApp extends Application {
     double referenceLongitude;
     double referenceLatitude;
 
-
-
+    private String pinHTML;
+    private String homePinHTML;
 
     /** HTTP client. */
     public static final HttpClient HTTP_CLIENT = HttpClient.newBuilder()
@@ -94,7 +94,6 @@ public class ApiApp extends Application {
     /** {@inheritDoc}*/
     @Override
     public void init() {
-
         addressPane = new HBox();
         addressPane.setPadding(new Insets(10));
         addressPane.setSpacing(10);
@@ -102,7 +101,6 @@ public class ApiApp extends Application {
         group = new ToggleGroup();
         currentLocationButton = new RadioButton("Current location");
         customAddressButton = new RadioButton("Custom address");
-
         customAddressButton.setOnAction((event) -> {
             addressField.setDisable(false);
             searchButton.setDisable(false);
@@ -111,11 +109,8 @@ public class ApiApp extends Application {
             addressField.setDisable(true);
             searchButton.setDisable(false);
         });
-
         currentLocationButton.setToggleGroup(group);
         customAddressButton.setToggleGroup(group);
-
-
 
         addressView = new ListView<>();
         addresses = FXCollections.observableArrayList("");
@@ -128,22 +123,20 @@ public class ApiApp extends Application {
         addressField.setDisable(true);
 
         Platform.runLater(() -> mapView = new WebView());
-
         statusPane = new HBox();
-
         resultView = new BorderPane();
-
         statusText = new Text("Find EV Chargers near you!");
 
         searchButton = new Button("search");
         searchButton.setDisable(true);
 
+        this.updateHomeString();
     }
 
     /** {@inheritDoc} */
     @Override
     public void start(Stage stage) {
-
+        this.fetchLocation();
         this.stage = stage;
 
         // setup scene
@@ -159,6 +152,8 @@ public class ApiApp extends Application {
         root.getChildren().addAll(addressPane,resultView,statusPane);
 
         searchButton.setOnAction((e) -> this.fetchLocation());
+
+        mapView.getEngine().loadContent(this.getHTMLContent());
 
         scene = new Scene(root);
         //scene.getStylesheets().add("main/java/cs1302/style/stylesheet.css");
@@ -177,15 +172,15 @@ public class ApiApp extends Application {
     /** Gets the location (longitude and latitude) we're referencing.
      */
     private void fetchLocation() {
-        statusText.setText("Fetching Results...");
-        String locationRequestString = "";
+        if (currentLocationButton.isSelected() || customAddressButton.isSelected()) {
+            statusText.setText("Fetching Results...");
+        }
+        String locationRequestString = "https://ipgeolocation.abstractapi.com/v1/?api_key=686c558080334cb3a12305d49fcf54c0";
         if (currentLocationButton.isSelected()) {
             locationRequestString = "https://ipgeolocation.abstractapi.com/v1/?api_key=686c558080334cb3a12305d49fcf54c0";
         } else if (customAddressButton.isSelected()) {
             //custom address used
         }
-
-        //final String REQUEST_STRING_FINAL = locationRequestString;
 
         HttpRequest request = HttpRequest.newBuilder()
             .uri(URI.create(locationRequestString))
@@ -198,16 +193,18 @@ public class ApiApp extends Application {
                     .fromJson(response.body(), LocationResponse.class);
                 referenceLongitude = locationResponse.longitude;
                 referenceLatitude = locationResponse.latitude;
-                this.fetchChargers(); // sends request to the chargeAPI
-
+                this.updateHomeString();
+                if (currentLocationButton.isSelected() || customAddressButton.isSelected()) {
+                    this.fetchChargers(); // sends request to the chargeAPI
+                }
             } catch (Exception e) {
                 System.err.println("Error occurred when sending the request for the location");
                 e.printStackTrace();
             }
             statusText.setText("Find EV Chargers near you!");
+            Platform.runLater(() -> mapView.getEngine().loadContent(this.getHTMLContent()));
         });
         locationThread.start();
-
     }
 
     /** Requests the charging stations from the api.
@@ -217,54 +214,106 @@ public class ApiApp extends Application {
         String latString = "&latitude=" + referenceLatitude;
         String longString = "&longitude=" + referenceLongitude;
         String keyString = "&key=8cd4a572-293c-4d05-bd8d-c2eb45cc553e";
-
         chargerRequestString += latString + longString + keyString;
         HttpRequest request = HttpRequest.newBuilder()
             .uri(URI.create(chargerRequestString))
             .header("Accept", "application/json")
             .method("GET", HttpRequest.BodyPublishers.noBody())
             .build();
-
         try {
             HttpResponse<String> response = HttpClient.newHttpClient()
                 .send(request, HttpResponse.BodyHandlers.ofString());
-
 
             chargeResults = GSON
                 .fromJson(response.body(), ChargeResult[].class);
 
             Platform.runLater(() -> {
-
+                pinHTML = "";
                 addresses = FXCollections.observableArrayList("");
+                int count = 0;
                 for (ChargeResult chargeResult: chargeResults) {
-                    System.out.println(chargeResult.addressInfo);
+                    count += 1;
                     if (chargeResult.addressInfo == null) {
                         continue;
                     }
-                    System.out.println("continue passed");
                     String siteString = "";
                     siteString += chargeResult.addressInfo.addressLine1 + "\n";
-
                     if (chargeResult.addressInfo.addressLine2 != null) {
                         siteString += chargeResult.addressInfo.addressLine2 + "\n";
                     }
-
                     siteString += chargeResult.addressInfo.town + " "
                         + chargeResult.addressInfo.postCode + "\n";
                     siteString += chargeResult.addressInfo.country.title;
 
                     addresses.add(siteString);
-
+                    pinHTML += " var pin" + count + " = new Microsoft.Maps.Pushpin(" +
+                        "new Microsoft.Maps.Location(" + chargeResult.addressInfo.latitude + "," +
+                         chargeResult.addressInfo.longitude + ")" + ",{" +
+                        "title: '" + chargeResult.addressInfo.addressLine1 + "'," +
+                        "subTitle:'" + chargeResult.addressInfo.postCode + "'," +
+                        "text: '" +  count + "'" +
+                        "});" +
+                        "map.entities.push(pin" + count + ");";
                 }
-
                 addressView.setItems(addresses);
-
             });
         } catch (Exception e) {
             System.err.println("Error occurred when sending the request for the chargers");
             e.printStackTrace();
         }
+    }
+
+
+    /**Method to generate HTML content with Bing Maps script.
+     * @return HTML Content.
+     */
+    private String getHTMLContent() {
+        String apiKey = "AVPBunBLkii75k5RufNj~KXU2UokTuxbX7f2e7l8bMw~"
+            + "AudjlcyLDVk8umkDz-ArbTKCWqYZw6DKrngwSMtWnIvgb3u4tg0laKDtg7WXgjDG";
+
+
+
+        String HTMLString = "<!DOCTYPE html>"
+            + "<html>"
+            + "<head>"
+            + "<title></title>"
+            + "<meta charset=\"utf-8\" />"
+            + "<script type='text/javascript' src='https://www.bing.com/api/maps/mapcontrol?callback=GetMap&key=" + apiKey + "' async defer></script>"
+            + "<script type='text/javascript'>"
+            + "function GetMap() {"
+            + "    var map = new Microsoft.Maps.Map('#map', {"
+            + "        credentials: '" + apiKey + "',"
+            + "        center: new Microsoft.Maps.Location(" +
+            referenceLatitude + ", " + referenceLongitude + "),"
+            + "        mapTypeId: Microsoft.Maps.MapTypeId.road,"
+            + "        zoom: 10,"
+            + "        showMapTypeSelector: false"
+            + "    });"
+            + homePinHTML
+            +  pinHTML
+            + "}"
+            + "</script>"
+            + "</head>"
+            + "<body onload=\"GetMap();\">"
+            + "<div id=\"map\" style=\"position:relative;width:100%;height:100%;\"></div>"
+            + "</body>"
+            + "</html>";
+
+        return HTMLString;
+    }
+
+    /** Helper.
+     */
+    private void updateHomeString() {
+        homePinHTML = "var Home = new Microsoft.Maps.Pushpin(" +
+              "new Microsoft.Maps.Location(" + referenceLatitude + "," +
+              referenceLongitude + ")" + ",{" +
+              "title: 'YOU ARE HERE'," +
+              "color: 'red'" +
+              "});" +
+              "map.entities.push(Home);";
 
     }
+
 
 } // ApiApp

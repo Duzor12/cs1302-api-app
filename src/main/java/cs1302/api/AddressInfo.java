@@ -21,6 +21,12 @@ public class AddressInfo {
     @SerializedName("Country")
     Country country;
 
+    @SerializedName("Latitude")
+    double latitude;
+
+    @SerializedName("Longitude")
+    double longitude;
+
 
 
     /** Default Constructor.
