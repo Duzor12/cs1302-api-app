@@ -13,7 +13,6 @@ import java.io.UnsupportedEncodingException;
 import java.lang.Thread;
 import java.lang.Exception;
 import java.lang.Class;
-
 import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.scene.control.Label;
@@ -44,7 +43,8 @@ import javafx.collections.FXCollections;
 import java.net.URLEncoder;
 
 /**
- * REPLACE WITH NON-SHOUTING DESCRIPTION OF YOUR APP.
+ * An application to find EV chargers near a specified location.
+ * Utilizes APIs for geolocation and charging stations, displaying results on a map interface.
  */
 public class ApiApp extends Application {
     Stage stage;
@@ -287,6 +287,10 @@ public class ApiApp extends Application {
                         "text: '" +  count + "'" +
                         "});" +
                         "map.entities.push(pin" + count + ");";
+                }
+
+                if (addresses.size() <= 1) {
+                    addresses.add("No EV Chargers near this Location!");
                 }
                 addressView.setItems(addresses);
             });
