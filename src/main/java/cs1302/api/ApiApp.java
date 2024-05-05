@@ -41,6 +41,8 @@ import javafx.scene.text.Text;
 import javafx.collections.ObservableList;
 import javafx.collections.FXCollections;
 
+import java.net.URLEncoder;
+
 /**
  * REPLACE WITH NON-SHOUTING DESCRIPTION OF YOUR APP.
  */
@@ -64,12 +66,15 @@ public class ApiApp extends Application {
 
     LocationResponse locationResponse;
     ChargeResult[] chargeResults;
+    CustomLocationResult[] customLocationResults;
 
     double referenceLongitude;
     double referenceLatitude;
 
     private String pinHTML;
     private String homePinHTML;
+
+    private boolean appJustStarting;
 
     /** HTTP client. */
     public static final HttpClient HTTP_CLIENT = HttpClient.newBuilder()
@@ -112,6 +117,8 @@ public class ApiApp extends Application {
         currentLocationButton.setToggleGroup(group);
         customAddressButton.setToggleGroup(group);
 
+
+
         addressView = new ListView<>();
         addresses = FXCollections.observableArrayList("");
         addressView.setItems(addresses);
@@ -131,6 +138,8 @@ public class ApiApp extends Application {
         searchButton.setDisable(true);
 
         this.updateHomeString();
+
+        appJustStarting = true;
     }
 
     /** {@inheritDoc} */
@@ -156,7 +165,6 @@ public class ApiApp extends Application {
         mapView.getEngine().loadContent(this.getHTMLContent());
 
         scene = new Scene(root);
-        //scene.getStylesheets().add("main/java/cs1302/style/stylesheet.css");
 
 
         // setup stage
@@ -172,27 +180,52 @@ public class ApiApp extends Application {
     /** Gets the location (longitude and latitude) we're referencing.
      */
     private void fetchLocation() {
+        String customSearch = "";
         if (currentLocationButton.isSelected() || customAddressButton.isSelected()) {
             statusText.setText("Fetching Results...");
         }
-        String locationRequestString = "https://ipgeolocation.abstractapi.com/v1/?api_key=686c558080334cb3a12305d49fcf54c0";
-        if (currentLocationButton.isSelected()) {
-            locationRequestString = "https://ipgeolocation.abstractapi.com/v1/?api_key=686c558080334cb3a12305d49fcf54c0";
+        HttpRequest tempRequest = null;
+
+        if (currentLocationButton.isSelected() || appJustStarting) {
+            String locationRequestString = "https://ipgeolocation.abstractapi.com/v1/?api_key=686c558080334cb3a12305d49fcf54c0";
+            tempRequest = HttpRequest.newBuilder()
+                .uri(URI.create(locationRequestString))
+                .build();
+
         } else if (customAddressButton.isSelected()) {
-            //custom address used
+            try {
+                customSearch += "&q=" + URLEncoder.encode(addressField.getText(),"UTF-8");
+            } catch (Exception e) {
+                System.err.println("Error occurred encoding text from Search Field");
+            }
+            tempRequest = HttpRequest.newBuilder()
+                .uri(URI.create("https://us1.locationiq.com/v1/search?format=json&normalizeaddress=1&key=pk.97577c04e9ff4e46c58a046e0a801ef1"
+                + customSearch))
+                .header("accept", "application/json")
+                .method("GET", HttpRequest.BodyPublishers.noBody())
+                .build();
         }
 
-        HttpRequest request = HttpRequest.newBuilder()
-            .uri(URI.create(locationRequestString))
-                 .build();
-
+        final HttpRequest request = tempRequest;
         Thread locationThread = new Thread (() -> {
             try {
-                HttpResponse<String> response = HTTP_CLIENT.send(request, BodyHandlers.ofString());
-                locationResponse = GSON
-                    .fromJson(response.body(), LocationResponse.class);
-                referenceLongitude = locationResponse.longitude;
-                referenceLatitude = locationResponse.latitude;
+                if (currentLocationButton.isSelected() || appJustStarting) {
+                    HttpResponse<String> response = HTTP_CLIENT
+                        .send(request, BodyHandlers.ofString());
+                    locationResponse = GSON
+                        .fromJson(response.body(), LocationResponse.class);
+                    referenceLongitude = locationResponse.longitude;
+                    referenceLatitude = locationResponse.latitude;
+                    appJustStarting = false;
+                } else if (customAddressButton.isSelected()) {
+                    HttpResponse<String> response = HttpClient.newHttpClient()
+                        .send(request, HttpResponse.BodyHandlers.ofString());
+                    customLocationResults = GSON
+                        .fromJson(response.body(),CustomLocationResult[].class);
+                    referenceLongitude = Double.parseDouble(customLocationResults[0].lon);
+                    referenceLatitude = Double.parseDouble(customLocationResults[0].lat);
+                }
+
                 this.updateHomeString();
                 if (currentLocationButton.isSelected() || customAddressButton.isSelected()) {
                     this.fetchChargers(); // sends request to the chargeAPI
